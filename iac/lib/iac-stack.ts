@@ -6,6 +6,7 @@ import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 
 import { Construct } from 'constructs';
 
@@ -26,6 +27,9 @@ export class IacStack extends cdk.Stack {
       accessControl: s3.BucketAccessControl.PRIVATE,
       autoDeleteObjects: true,
     });
+
+    const propertyLambda = s3Bucket.node.defaultChild as s3.CfnBucket
+    propertyLambda.addPropertyOverride("Runtime", lambda.Runtime.NODEJS_18_X.name)
 
     const oac = new cloudfront.CfnOriginAccessControl(this, 'AOC', {
       originAccessControlConfig: {
