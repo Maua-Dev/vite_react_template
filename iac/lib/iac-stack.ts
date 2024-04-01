@@ -28,8 +28,6 @@ export class IacStack extends cdk.Stack {
       autoDeleteObjects: true,
     });
 
-    const propertyLambda = s3Bucket.node.defaultChild as s3.CfnBucket
-    propertyLambda.addPropertyOverride("Runtime", lambda.Runtime.NODEJS_18_X.name)
 
     const oac = new cloudfront.CfnOriginAccessControl(this, 'AOC', {
       originAccessControlConfig: {
