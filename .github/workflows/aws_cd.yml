@@ -28,6 +28,10 @@ jobs:
           run: |
             echo "STAGE=${{ github.ref_name }}" 
             PROJECT_NAME=$(echo ${{ github.event.repository.name }} | sed -e 's/[-_]/ /g' | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1' | sed -e 's/ //g')
+            if [ "${#PROJECT_NAME}" -gt 64 ]; then
+              echo "Error: PROJECT_NAME is too long. It should be less than or equal to 64 characters."
+              exit 1
+            fi
             echo "PROJECT_NAME=${PROJECT_NAME}"
             echo "STACK_NAME=${PROJECT_NAME}StackFront${{github.ref_name}}"
 
