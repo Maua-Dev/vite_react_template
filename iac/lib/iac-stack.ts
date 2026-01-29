@@ -7,8 +7,11 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 
 import { Construct } from 'constructs';
+import * as path from 'path';
 
 export class IacStack extends cdk.Stack {
   constructor(scope: Construct, id: string,  props?: cdk.StackProps) {
@@ -84,7 +87,6 @@ export class IacStack extends cdk.Stack {
     const cfnDistribution = cloudFrontWebDistribution.node.defaultChild as cloudfront.CfnDistribution
 
     cfnDistribution.addPropertyOverride('DistributionConfig.Origins.0.OriginAccessControlId', oac.getAtt('Id'))
-
     
     s3Bucket.addToResourcePolicy(
       new iam.PolicyStatement({
@@ -107,7 +109,93 @@ export class IacStack extends cdk.Stack {
         target: route53.RecordTarget.fromAlias(new route53Targets.CloudFrontTarget(cloudFrontWebDistribution)),
       });
     }
-      
+    
+    const cleanupLambda = new NodejsFunction(this, projectName + 'CleanupLambda-' + stage, {
+      functionName: projectName + 'CleanupLambda' + stage,
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'handler',
+      entry: path.join(__dirname, '../functions/cleanup_lambda.ts'),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256
+    });
+
+    const stack_arn = `arn:aws:cloudformation:${props.env.region}:${props.env.account}:stack/${id}/*`;
+
+    cleanupLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'cloudformation:DeleteStack',
+          'cloudformation:DescribeStacks',          
+          's3:DeleteBucket',
+          's3:DeleteObject',
+          's3:DeleteObjectVersion',
+          's3:ListBucket',
+          's3:ListBucketVersions'
+        ],
+        resources: [
+          stack_arn,
+          s3Bucket.bucketArn,
+          s3Bucket.arnForObjects('*'),
+        ]
+      })
+    );
+
+    cleanupLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'cloudfront:GetDistribution',
+          'cloudfront:DeleteDistribution',
+          'cloudfront:UpdateDistribution',
+          'cloudfront:GetDistributionConfig',
+        ],
+        resources: ['*'],
+      })
+    );
+
+    // IAM role for EventBridge Scheduler
+    const schedulerRole = new iam.Role(this, projectName + 'SchedulerRole-' + stage, {
+      roleName: projectName + 'SchedulerRole' + stage,
+      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+    });
+
+    schedulerRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['lambda:InvokeFunction'],
+        resources: [cleanupLambda.functionArn],
+      })
+    );
+
+    // Calculate deletion date: current timestamp + 5 minutes (for testing)
+    const deletionDate = new Date();
+    deletionDate.setMinutes(deletionDate.getMinutes() + 5);
+    
+    // Convert to America/Sao_Paulo timezone and format as ISO 8601
+    const scheduleAt = deletionDate
+      .toLocaleString('sv-SE', { timeZone: 'America/Sao_Paulo' })
+      .replace(' ', 'T');
+
+    // EventBridge Scheduler - one-time schedule that gets updated on every deploy
+    new scheduler.CfnSchedule(this, projectName + 'CleanupSchedule-' + stage, {
+      name: projectName + 'CleanupSchedule' + stage,
+      description: `Delete stack ${id} after 90 days of inactivity`,
+      scheduleExpression: `at(${scheduleAt})`,
+      scheduleExpressionTimezone: 'America/Sao_Paulo',
+      flexibleTimeWindow: {
+        mode: 'OFF',
+      },
+      target: {
+        arn: cleanupLambda.functionArn,
+        roleArn: schedulerRole.roleArn,
+        input: JSON.stringify({
+          stackName: id
+        }),
+      },
+      state: 'ENABLED',
+    });
+
     new cdk.CfnOutput(this, projectName + 'BucketName-' + stage, {
       value: s3Bucket.bucketName,
     });
@@ -119,7 +207,11 @@ export class IacStack extends cdk.Stack {
     new cdk.CfnOutput(this, projectName + 'DistributionDomainName-' + stage, {
       value: cloudFrontWebDistribution.distributionDomainName,
     });
-    
+
+    new cdk.CfnOutput(this, projectName + 'CleanupScheduledAt-' + stage, {
+      value: scheduleAt,
+      description: 'Stack will be deleted at this timestamp.',
+    });
 
   }
 }
