@@ -13,8 +13,21 @@ import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
+interface IacStackProps extends cdk.StackProps {
+  env: {
+    account?: string;
+    region?: string;
+  },
+  tags: {
+    project: string,
+    stage: string,
+    stack: string,
+    owner: string
+  };
+}
+
 export class IacStack extends cdk.Stack {
-  constructor(scope: Construct, id: string,  props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props: IacStackProps) {
     super(scope, id, props);
 
     const stage = process.env.GITHUB_REF_NAME || 'dev';
@@ -149,8 +162,23 @@ export class IacStack extends cdk.Stack {
           'cloudfront:DeleteDistribution',
           'cloudfront:UpdateDistribution',
           'cloudfront:GetDistributionConfig',
+          'cloudfront:DeleteOriginAccessControl'
         ],
         resources: ['*'],
+      })
+    );
+
+    cleanupLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'lambda:DeleteFunction',
+          'lambda:GetFunction',
+          'iam:DeleteRole',
+          'iam:DeleteRolePolicy',
+          'iam:DetachRolePolicy'
+        ],
+        resources: ['*']
       })
     );
 
