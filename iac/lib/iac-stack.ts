@@ -196,9 +196,9 @@ export class IacStack extends cdk.Stack {
       })
     );
 
-    // Calculate deletion date: current timestamp + 5 minutes (for testing)
+    
     const deletionDate = new Date();
-    deletionDate.setMinutes(deletionDate.getMinutes() + 5);
+    deletionDate.setDate(deletionDate.getDate() + 90);
     
     // Convert to America/Sao_Paulo timezone and format as ISO 8601
     const scheduleAt = deletionDate
